@@ -1,0 +1,61 @@
+name: nightly-data
+
+on:
+  schedule:
+    - cron: "0 2 * * *"        # ~02:00 UTC nightly
+  workflow_dispatch:
+    inputs:
+      skip_fbref:
+        description: "Skip the FBref pull (faster; results + ratings only)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: nightly-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write               # commit refreshed parquet back to main
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Restore FBref (soccerdata) cache
+        uses: actions/cache@v4
+        with:
+          path: data/raw/fbref_cache
+          key: fbref-cache-${{ github.run_id }}
+          restore-keys: |
+            fbref-cache-
+
+      - name: Sync dependencies
+        run: uv sync --extra ingest --extra backtest
+
+      - name: Run nightly data job
+        env:
+          FOOTBALL_DATA_ORG_API_KEY: ${{ secrets.FOOTBALL_DATA_ORG_API_KEY }}
+        run: |
+          uv run python -m ingest.run_nightly \
+            ${{ inputs.skip_fbref && '--skip-fbref' || '' }}
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/processed data/model reports/calibration || true
+          if git diff --cached --quiet; then
+            echo "no data changes"
+          else
+            git commit -m "nightly data refresh $(date -u +%Y-%m-%d)"
+            git push
+          fi

@@ -1,0 +1,49 @@
+name: odds-refresh
+
+# Phase 4. Fetches UK odds twice daily within the free-tier credit budget:
+#   The Odds API  - region=uk, markets=h2h,totals,btts  (3 credits / league / call)
+#   Betfair       - delayed app key, no-vig midpoints
+# The CreditBudgeter hard-stops before any call that would breach the quota floor.
+#
+# Manual-only until Phase 4 wires the providers; then the schedule below is enabled.
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 8 * * *"     # ~08:00 UTC  (morning)
+  #   - cron: "0 13 * * *"    # ~13:00 UTC  (~2h before Saturday 15:00 kickoffs)
+
+concurrency:
+  group: odds-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra betfair
+      - name: Fetch odds (budget-gated)
+        env:
+          THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+          BETFAIR_USERNAME: ${{ secrets.BETFAIR_USERNAME }}
+          BETFAIR_PASSWORD: ${{ secrets.BETFAIR_PASSWORD }}
+          BETFAIR_APP_KEY: ${{ secrets.BETFAIR_APP_KEY }}
+        run: uv run python -m ingest.run_odds
+      - name: Commit odds snapshot
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/raw/odds data/processed || true
+          git diff --cached --quiet || {
+            git commit -m "odds refresh $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          }

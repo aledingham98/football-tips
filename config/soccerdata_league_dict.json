@@ -1,0 +1,27 @@
+{
+  "ENG-Premier League": {
+    "MatchHistory": "E0",
+    "FBref": "Premier League",
+    "Understat": "EPL",
+    "season_start": "Aug",
+    "season_end": "May"
+  },
+  "ENG-Championship": {
+    "MatchHistory": "E1",
+    "FBref": "Championship",
+    "season_start": "Aug",
+    "season_end": "May"
+  },
+  "ENG-League One": {
+    "MatchHistory": "E2",
+    "FBref": "League One",
+    "season_start": "Aug",
+    "season_end": "May"
+  },
+  "ENG-League Two": {
+    "MatchHistory": "E3",
+    "FBref": "League Two",
+    "season_start": "Aug",
+    "season_end": "May"
+  }
+}
