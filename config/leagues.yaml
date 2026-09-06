@@ -45,9 +45,12 @@ leagues:
     has_xg: false
 
 # Seasons to ingest for fitting + backtest (FBref / football-data.co.uk season labels).
+# The current season MUST be included or the model prices this season's fixtures
+# with stale ratings that don't know who was promoted / relegated.
 seasons:
-  history: ["2021-2022", "2022-2023", "2023-2024", "2024-2025", "2025-2026"]
-  current: "2025-2026"
+  history:
+    ["2021-2022", "2022-2023", "2023-2024", "2024-2025", "2025-2026", "2026-2027"]
+  current: "2026-2027"
 
 # soccerdata cache location (gitignored; lives in the Actions cache + dev machines).
 fbref_cache_dir: "data/raw/fbref_cache"

@@ -21,12 +21,17 @@ def main() -> None:
     ap.add_argument("--matches", default="data/processed/matches.parquet")
     ap.add_argument("--holdout", default="2025-08-01", help="first date of the held-out period")
     ap.add_argument("--half-life", type=float, default=180.0)
-    ap.add_argument("--l2", type=float, default=0.05)
+    ap.add_argument("--l2", type=float, default=None, help="override config ratings_l2")
     ap.add_argument("--out", default="reports/calibration")
     args = ap.parse_args()
 
     matches = pd.read_parquet(args.matches)
-    cfg = DixonColesConfig(time_decay_half_life_days=args.half_life, ratings_l2=args.l2)
+    from config.loader import model_config
+
+    cfg = DixonColesConfig.from_yaml(model_config())
+    cfg.time_decay_half_life_days = args.half_life
+    if args.l2 is not None:
+        cfg.ratings_l2 = args.l2
     result = walk_forward_calibration(matches, holdout_start=args.holdout, config=cfg)
 
     cols = ["n", "base_rate", "mean_pred", "brier", "logloss", "ece", "cal_slope", "cal_intercept"]

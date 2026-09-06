@@ -10,6 +10,8 @@ simulation:
 
 dixon_coles:
   time_decay_half_life_days: 180     # exponential match-weight half-life (~6 months)
+  ratings_l2: 0.045                  # shrink team atk/dfn toward tier mean (lower = wider spread)
+  draw_adjust: 0.035                 # shrink the score-line diagonal (Poisson over-predicts draws)
   rho_init: -0.10                    # low-score correlation parameter, initial value
   # Shared per-match "tempo" multiplier theta ~ Gamma(mean 1, var tempo_var_init),
   # scaling both teams' goal rates -> bivariate negative-binomial score. Fitted,
@@ -17,8 +19,6 @@ dixon_coles:
   # (no extra dispersion needed); it has room to grow once xG sharpens the rates.
   tempo_var_init: 0.03
   tempo_var_prior_sd: 0.06
-  # L2 shrinkage of attack/defence params toward 0 (log scale).
-  ratings_l2: 0.05
   # Pull each team's home params toward its away params (and vice versa).
   home_away_coupling: 0.35
   # Global multiplicative home advantage, initial value (log scale).
@@ -33,10 +33,15 @@ league_strength:
   # Identified from teams that changed division across the history window.
 
 promotion_shrinkage:
-  # New-to-division team attack/defence shrunk toward league average.
-  # weight = base * exp(-games_played / decay_games)
-  base: 0.60
-  decay_games: 12
+  # Extra L2 pull toward the current tier mean for a team with few games in it:
+  # multiplier on ratings_l2 = 1 + base * exp(-current_tier_games / decay_games).
+  # NOTE: kept mild - the tier mean is an *average* side, so over-shrinking a
+  # just-promoted team overrates it. The app flags fixtures with a low-data team
+  # rather than leaning hard on this. Real fix needs squad-strength data.
+  base: 0.25
+  decay_games: 10
+  # Below this many current-tier games, the app marks a team's fixtures low-confidence.
+  min_confident_games: 10
 
 minutes:
   # Expected minutes projection from recent appearances.

@@ -63,13 +63,15 @@ def _calib_key(leg: Leg) -> str | None:
 
 @st.cache_data(show_spinner="Pricing the upcoming slate…")
 def slate(_ratings_mtime: float, _fixtures_mtime: float, n_sims: int = 20_000):
-    """Model probabilities for every standard market across all upcoming fixtures."""
+    """Model probabilities for every standard market across all *future* fixtures."""
     import pandas as pd
 
     fx = data_access.fixtures(_fixtures_mtime)
     R = data_access.ratings()
     if fx is None or len(fx) == 0 or R is None:
         return pd.DataFrame()
+    now = pd.Timestamp.now(tz="UTC")
+    fx = fx[pd.to_datetime(fx["kickoff"], utc=True) > now]  # drop kicked-off / in-play
     mcfg = data_access.get_model_config()
     rows = []
     for f in fx.itertuples(index=False):
@@ -129,11 +131,19 @@ _ODDS_TO_SLATE = {
 }
 
 
-def value_table(slate_df, odds_df):
-    """Left-join the slate with the best committed odds and compute EV.
+_DEVIG_GROUPS = {
+    "result": ["Home win", "Draw", "Away win"],
+    "over_2.5": ["Over 2.5", "Under 2.5"],
+}
 
-    Returns the slate with `best_odds`, `book`, `ev` columns (NaN where no odds
-    matched). Team names are matched on a normalised key.
+
+def value_table(slate_df, odds_df):
+    """Left-join the slate with committed odds and compute EV against best price,
+    plus a no-vig market consensus and the model-vs-market divergence.
+
+    Columns added: ``best_odds``, ``book``, ``ev`` (model_prob x best_odds - 1),
+    ``mkt_novig`` (de-vigged consensus probability), ``divergence``
+    (model_prob - mkt_novig). NaN where no odds matched.
     """
     import pandas as pd
 
@@ -145,9 +155,8 @@ def value_table(slate_df, odds_df):
     s["ak"] = parts[1].map(normalize_team_name)
 
     if odds_df is None or len(odds_df) == 0:
-        s["best_odds"] = pd.NA
-        s["book"] = pd.NA
-        s["ev"] = pd.NA
+        for c in ("best_odds", "book", "ev", "mkt_novig", "divergence"):
+            s[c] = pd.NA
         return s
 
     o = odds_df.copy()
@@ -160,11 +169,51 @@ def value_table(slate_df, odds_df):
     o["ak"] = o["away_team"].map(normalize_team_name)
     o = o.rename(columns={"decimal_odds": "best_odds", "provider": "book"})
 
+    # de-vigged consensus: within each fixture, proportionally strip the overround
+    # from complete market groups (1X2, Over/Under 2.5).
+    novig_rows = []
+    for (hk, ak), g in o.groupby(["hk", "ak"]):
+        by_lbl = g.groupby("mkt_label")["best_odds"].median()  # consensus decimal
+        for outcomes in _DEVIG_GROUPS.values():
+            have = [lbl for lbl in outcomes if lbl in by_lbl.index]
+            if len(have) != len(outcomes):
+                continue
+            inv = {lbl: 1.0 / by_lbl[lbl] for lbl in have}
+            tot = sum(inv.values())
+            for lbl in have:
+                novig_rows.append(
+                    {"hk": hk, "ak": ak, "mkt_label": lbl, "mkt_novig": inv[lbl] / tot}
+                )
+    novig = (
+        pd.DataFrame(novig_rows)
+        if novig_rows
+        else pd.DataFrame(columns=["hk", "ak", "mkt_label", "mkt_novig"])
+    )
+
     merged = s.merge(
         o[["hk", "ak", "mkt_label", "best_odds", "book"]],
         left_on=["hk", "ak", "market"],
         right_on=["hk", "ak", "mkt_label"],
         how="left",
     ).drop(columns=["mkt_label"])
+    merged = merged.merge(
+        novig, left_on=["hk", "ak", "market"], right_on=["hk", "ak", "mkt_label"], how="left"
+    ).drop(columns=["mkt_label"])
     merged["ev"] = merged["model_prob"] * merged["best_odds"] - 1.0
+    merged["divergence"] = merged["model_prob"] - merged["mkt_novig"]
+
+    # flag fixtures where a team has too few games in its current tier for the
+    # model to be trusted (just-promoted / just-relegated).
+    R = data_access.ratings()
+    mcfg = data_access.get_model_config()
+    min_games = mcfg.get("promotion_shrinkage", {}).get("min_confident_games", 10)
+    if R is not None and "current_tier_games" in R.table.columns:
+        low = {
+            normalize_team_name(t)
+            for t, g in R.table["current_tier_games"].items()
+            if g < min_games
+        }
+        merged["low_data"] = merged["hk"].isin(low) | merged["ak"].isin(low)
+    else:
+        merged["low_data"] = False
     return merged

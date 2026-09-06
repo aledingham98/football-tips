@@ -43,7 +43,12 @@ def tau(x: NDArray, y: NDArray, lam: float, mu: float, rho: float) -> NDArray:
 
 
 def score_matrix(
-    lam: float, mu: float, rho: float, max_goals: int = 15, tempo_var: float = 0.0
+    lam: float,
+    mu: float,
+    rho: float,
+    max_goals: int = 15,
+    tempo_var: float = 0.0,
+    draw_adjust: float = 0.0,
 ) -> NDArray:
     """Joint PMF of (home goals, away goals) on a ``0..max_goals`` grid.
 
@@ -56,6 +61,11 @@ def score_matrix(
     tails on the total and mild positive home/away dependence - the fix for the
     plain-Dixon-Coles under-dispersion of goals markets. ``tempo_var == 0``
     recovers the independent-Poisson form exactly.
+
+    ``draw_adjust`` in (0, 1) shrinks the score-line diagonal by that fraction
+    before renormalising - a small correction for the well-known tendency of a
+    Poisson-family model to over-predict draws (teams play more decisively near
+    parity than independent scoring implies).
     """
     g = np.arange(max_goals + 1)
     xx, yy = np.meshgrid(g, g, indexing="ij")
@@ -76,6 +86,8 @@ def score_matrix(
         )
         joint = np.exp(log_joint)
     joint = joint * tau(xx, yy, lam, mu, rho)
+    if draw_adjust:
+        np.fill_diagonal(joint, np.diagonal(joint) * (1.0 - draw_adjust))
     return joint / joint.sum()
 
 
@@ -136,11 +148,15 @@ class DixonColesConfig:
     home_advantage_init: float = 0.25
     tempo_var_init: float = 0.03  # shared per-match tempo multiplier variance
     tempo_var_prior_sd: float = 0.06
+    draw_adjust: float = 0.0  # fraction to shrink the score-line diagonal (draw over-prediction)
+    promotion_shrinkage_base: float = 0.25  # extra L2 pull for just-promoted/relegated sides
+    promotion_shrinkage_decay_games: float = 10.0
 
     @classmethod
     def from_yaml(cls, model_yaml: dict) -> DixonColesConfig:
         dc = model_yaml.get("dixon_coles", {})
         ls = model_yaml.get("league_strength", {})
+        prm = model_yaml.get("promotion_shrinkage", {})
         return cls(
             time_decay_half_life_days=dc.get("time_decay_half_life_days", 180.0),
             rho_init=dc.get("rho_init", -0.10),
@@ -150,6 +166,9 @@ class DixonColesConfig:
             home_advantage_init=dc.get("home_advantage_init", 0.25),
             tempo_var_init=dc.get("tempo_var_init", 0.03),
             tempo_var_prior_sd=dc.get("tempo_var_prior_sd", 0.06),
+            draw_adjust=dc.get("draw_adjust", 0.0),
+            promotion_shrinkage_base=prm.get("base", 0.6),
+            promotion_shrinkage_decay_games=prm.get("decay_games", 12.0),
         )
 
 
@@ -164,6 +183,7 @@ class TeamRatings:
     tier_atk: dict[int, float]
     tier_dfn: dict[int, float]
     tempo_var: float = 0.0
+    draw_adjust: float = 0.0
     meta: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ #
@@ -193,7 +213,7 @@ class TeamRatings:
 
     def score_matrix(self, home_team: str, away_team: str, max_goals: int = 15, **kw) -> NDArray:
         lh, la = self.lambdas(home_team, away_team, **kw)
-        return score_matrix(lh, la, self.rho, max_goals, self.tempo_var)
+        return score_matrix(lh, la, self.rho, max_goals, self.tempo_var, self.draw_adjust)
 
     # ------------------------------------------------------------------ #
     def to_parquet(self, path: str | Path) -> None:
@@ -207,6 +227,7 @@ class TeamRatings:
                     "gamma": self.gamma,
                     "rho": self.rho,
                     "tempo_var": self.tempo_var,
+                    "draw_adjust": self.draw_adjust,
                     "tier_atk": {str(k): v for k, v in self.tier_atk.items()},
                     "tier_dfn": {str(k): v for k, v in self.tier_dfn.items()},
                     "meta": self.meta,
@@ -225,6 +246,7 @@ class TeamRatings:
             gamma=blob["gamma"],
             rho=blob["rho"],
             tempo_var=blob.get("tempo_var", 0.0),
+            draw_adjust=blob.get("draw_adjust", 0.0),
             tier_atk={int(k): v for k, v in blob["tier_atk"].items()},
             tier_dfn={int(k): v for k, v in blob["tier_dfn"].items()},
             meta=blob.get("meta", {}),
@@ -257,16 +279,26 @@ def fit(
     tidx = {t: i for i, t in enumerate(teams)}
     n_teams = len(teams)
 
-    # team -> tier
+    # team -> tier for the hierarchical prior: the mode of the team's matches
+    # (stable across the fit). Separately, count how many games the team has in
+    # the tier of its *most recent* match - the app uses this low count to flag
+    # just-promoted / just-relegated sides rather than the fit trying to correct
+    # for them (which destabilises the ratings without squad-strength data).
     tiers_map: dict[str, int] = {}
+    current_tier_games: dict[str, int] = {}
     if "tier" in df.columns:
+        df_sorted = df.sort_values("date")
         for t in teams:
-            sub = df.loc[(df.home_team == t) | (df.away_team == t), "tier"]
+            sub = df_sorted.loc[(df_sorted.home_team == t) | (df_sorted.away_team == t), "tier"]
             tiers_map[t] = int(sub.mode().iloc[0])
+            recent = int(sub.iloc[-1]) if len(sub) else tiers_map[t]
+            current_tier_games[t] = int((sub == recent).sum())
     elif team_tiers:
         tiers_map = {t: team_tiers.get(t, 1) for t in teams}
+        current_tier_games = dict.fromkeys(teams, 999)
     else:
         tiers_map = dict.fromkeys(teams, 1)
+        current_tier_games = dict.fromkeys(teams, 999)
     tiers = sorted(set(tiers_map.values()))
     tier_pos = {k: i for i, k in enumerate(tiers)}
     n_tiers = len(tiers)
@@ -439,6 +471,7 @@ def fit(
             "dfn": dfn,
             "atk_ha": atk_ha,
             "dfn_ha": dfn_ha,
+            "current_tier_games": [current_tier_games[t] for t in teams],
         },
         index=pd.Index(teams, name="team"),
     )
@@ -448,6 +481,7 @@ def fit(
         gamma=float(gamma),
         rho=float(rho),
         tempo_var=float(tempo_var),
+        draw_adjust=cfg.draw_adjust,
         tier_atk={k: float(atk_tier[tier_pos[k]]) for k in tiers},
         tier_dfn={k: float(dfn_tier[tier_pos[k]]) for k in tiers},
         meta={

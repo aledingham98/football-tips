@@ -22,10 +22,13 @@ import requests
 from ingest._net import make_session
 
 BASE_URL = "https://www.football-data.co.uk/mmz4281"
-# football-data.co.uk intermittently 503s (and rate-limits cloud IPs); retry a few
-# times with backoff before giving up on a division-season.
-_RETRIES = 4
-_BACKOFF = 3.0
+# football-data.co.uk intermittently 503s (and rate-limits cloud IPs); retry a
+# couple of times with short backoff before giving up on a division-season.
+_RETRIES = 3
+_BACKOFF = 2.0
+# Corporate proxies (Zscaler etc.) return a block page instead of the CSV -
+# detect and bail immediately rather than retrying pointlessly.
+_PROXY_MARKERS = ("zscaler", "<!doctype html", "<html")
 
 # internal league code -> football-data.co.uk division code
 DIV_CODE = {"EPL": "E0", "ECH": "E1", "EL1": "E2", "EL2": "E3"}
@@ -78,8 +81,11 @@ class FootballDataCoUk:
         for attempt in range(_RETRIES):
             try:
                 resp = self._session().get(url, timeout=self.timeout)
-                if resp.status_code in (429, 500, 502, 503, 504):
-                    resp.raise_for_status()
+                head = resp.content[:200].lower()
+                if resp.headers.get("Server", "").lower().startswith("zscaler") or any(
+                    m.encode() in head for m in _PROXY_MARKERS
+                ):
+                    raise requests.ConnectionError("blocked by a proxy (not the CSV) - not retrying")
                 resp.raise_for_status()
                 raw = resp.content
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +93,13 @@ class FootballDataCoUk:
                 return pd.read_csv(
                     io.BytesIO(raw), encoding="latin-1", on_bad_lines="skip", dtype=str
                 )
-            except (requests.HTTPError, requests.ConnectionError, requests.Timeout) as exc:
+            except requests.ConnectionError as exc:
+                if "not retrying" in str(exc):
+                    raise
+                last_exc = exc
+                if attempt < _RETRIES - 1:
+                    time.sleep(_BACKOFF * (2**attempt))
+            except (requests.HTTPError, requests.Timeout) as exc:
                 last_exc = exc
                 if attempt < _RETRIES - 1:
                     time.sleep(_BACKOFF * (2**attempt))
