@@ -106,7 +106,10 @@ class TheOddsApiProvider(OddsProvider):
             best: dict[tuple[str, str], float] = {}
             for book in event.get("bookmakers", []):
                 for mk in book.get("markets", []):
-                    market = _MARKET_MAP.get(mk.get("key", ""), mk.get("key", ""))
+                    mkey = mk.get("key", "")
+                    if mkey not in _MARKET_MAP:  # skip h2h_lay, h2h_h1, alternates, ...
+                        continue
+                    market = _MARKET_MAP[mkey]
                     for oc in mk.get("outcomes", []):
                         sel = _selection_label(market, oc, home, away)
                         price = float(oc.get("price", 0) or 0)
