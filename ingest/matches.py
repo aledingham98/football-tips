@@ -10,7 +10,6 @@ Output: ``data/processed/matches.parquet`` - one row per completed match, with a
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -18,16 +17,15 @@ import pandas as pd
 from config.loader import league_table
 from ingest.football_data_couk import FootballDataCoUk
 from ingest.football_data_org import FootballDataOrg
+from ingest.teams import canonical_key, canonical_name
 
 OUT_PATH = Path("data/processed/matches.parquet")
 
-_SUFFIX = re.compile(r"\b(fc|afc|cf)\b", re.I)
-
 
 def normalize_team_name(name: str) -> str:
-    n = _SUFFIX.sub("", str(name).lower())
-    n = re.sub(r"[^a-z0-9 ]", " ", n)
-    return re.sub(r"\s+", " ", n).strip()
+    """Canonical lowercase key for a team, aliases resolved (Man City ->
+    manchester city, Spurs -> tottenham hotspur, ...)."""
+    return canonical_key(name)
 
 
 def _dedupe_key(df: pd.DataFrame) -> pd.Series:
@@ -99,6 +97,10 @@ def build_match_history(
     combined["_rank"] = combined["source"].map(src_rank).fillna(9)
     combined = combined.sort_values(["_rank", "date"])
     combined = combined[~_dedupe_key(combined).duplicated()].drop(columns="_rank")
+
+    # one consistent display name everywhere downstream
+    combined["home_team"] = combined["home_team"].map(canonical_name)
+    combined["away_team"] = combined["away_team"].map(canonical_name)
 
     combined["tier"] = combined["league"].map(lambda lg: lt[lg]["tier"])
     combined = combined.dropna(subset=["fthg", "ftag"]).sort_values("date").reset_index(drop=True)

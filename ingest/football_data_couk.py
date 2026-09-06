@@ -1,17 +1,21 @@
 """football-data.co.uk historical CSVs.
 
-Free, stable, covers all four English tiers back many seasons with full-time and
-half-time scores, referee (recent seasons) and multi-bookmaker odds *including
-closing prices*. Used to fit the Dixon-Coles model and, in Phase 2, as the
-held-out backtest set with the closing line as the calibration benchmark.
+Free, stable, covers all four English tiers back many seasons with:
+* full-time / half-time scores
+* **referee name**
+* **per-match team stats** - shots, shots on target, fouls, corners, cards
+* multi-bookmaker odds including closing prices
 
-Raw CSVs are cached under ``data/raw/football_data_couk/`` (gitignored); the tidy
-output is written to ``data/processed/matches.parquet`` and committed.
+These per-match stats + referee are what power the referee card model and the
+real team shot / corner / card rates (instead of deriving them from expected
+goals). Raw CSVs cached under ``data/raw/football_data_couk/`` (gitignored); the
+tidy output is merged into ``data/processed/matches.parquet``.
 """
 
 from __future__ import annotations
 
 import io
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +24,17 @@ import pandas as pd
 import requests
 
 from ingest._net import make_session
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def _parse_dates(col: pd.Series) -> pd.Series:
+    """football-data.co.uk direct uses DD/MM/YYYY; the GitHub mirror uses ISO."""
+    sample = col.dropna().astype(str).head(20)
+    if len(sample) and (sample.str.match(_ISO_DATE).mean() > 0.5):
+        return pd.to_datetime(col, errors="coerce")
+    return pd.to_datetime(col, dayfirst=True, errors="coerce", format="mixed")
+
 
 BASE_URL = "https://www.football-data.co.uk/mmz4281"
 # football-data.co.uk intermittently 503s (and rate-limits cloud IPs); retry a
@@ -32,6 +47,13 @@ _PROXY_MARKERS = ("zscaler", "<!doctype html", "<html")
 
 # internal league code -> football-data.co.uk division code
 DIV_CODE = {"EPL": "E0", "ECH": "E1", "EL1": "E2", "EL2": "E3"}
+
+# GitHub mirror of the same CSVs (core cols + referee + team stats, no odds).
+# Only covers the top-5 leagues, so EPL only for our tiers - the direct source
+# stays primary and is the only route for the EFL + closing odds.
+_MIRROR = {
+    "EPL": "https://raw.githubusercontent.com/datasets/football-datasets/main/datasets/premier-league/season-{sc}.csv"
+}
 
 
 # "2024-2025" -> "2425"
@@ -51,7 +73,21 @@ _ODDS_COLS = {
     "b365cd": "b365_close_draw_odds",
     "b365ca": "b365_close_away_odds",
 }
-_KEEP_BASE = ["date", "league", "season", "home_team", "away_team", "fthg", "ftag", "hthg", "htag"]
+# per-match team stats (football-data.co.uk short codes)
+_STAT_COLS = {
+    "hs": "home_shots",
+    "as": "away_shots",
+    "hst": "home_sot",
+    "ast": "away_sot",
+    "hf": "home_fouls",
+    "af": "away_fouls",
+    "hc": "home_corners",
+    "ac": "away_corners",
+    "hy": "home_yellows",
+    "ay": "away_yellows",
+    "hr": "home_reds",
+    "ar": "away_reds",
+}
 
 
 @dataclass
@@ -68,15 +104,7 @@ class FootballDataCoUk:
             self._sess = make_session()
         return self._sess
 
-    def _fetch_csv(self, div: str, season: str, *, refresh: bool = False) -> pd.DataFrame:
-        sc = season_code(season)
-        path = self.cache_dir / sc / f"{div}.csv"
-        if path.exists() and not refresh:
-            return pd.read_csv(
-                io.BytesIO(path.read_bytes()), encoding="latin-1", on_bad_lines="skip", dtype=str
-            )
-
-        url = f"{BASE_URL}/{sc}/{div}.csv"
+    def _get(self, url: str) -> bytes | None:
         last_exc: Exception | None = None
         for attempt in range(_RETRIES):
             try:
@@ -85,25 +113,36 @@ class FootballDataCoUk:
                 if resp.headers.get("Server", "").lower().startswith("zscaler") or any(
                     m.encode() in head for m in _PROXY_MARKERS
                 ):
-                    raise requests.ConnectionError("blocked by a proxy (not the CSV) - not retrying")
+                    return None  # proxy block page, not the CSV - don't retry
                 resp.raise_for_status()
-                raw = resp.content
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(raw)
-                return pd.read_csv(
-                    io.BytesIO(raw), encoding="latin-1", on_bad_lines="skip", dtype=str
-                )
-            except requests.ConnectionError as exc:
-                if "not retrying" in str(exc):
-                    raise
+                return resp.content
+            except (requests.HTTPError, requests.Timeout, requests.ConnectionError) as exc:
                 last_exc = exc
                 if attempt < _RETRIES - 1:
                     time.sleep(_BACKOFF * (2**attempt))
-            except (requests.HTTPError, requests.Timeout) as exc:
-                last_exc = exc
-                if attempt < _RETRIES - 1:
-                    time.sleep(_BACKOFF * (2**attempt))
-        raise last_exc  # exhausted retries
+        if last_exc:
+            raise last_exc
+        return None
+
+    def _fetch_csv(
+        self, league: str, div: str, season: str, *, refresh: bool = False
+    ) -> pd.DataFrame:
+        sc = season_code(season)
+        path = self.cache_dir / sc / f"{div}.csv"
+        if path.exists() and not refresh:
+            return pd.read_csv(
+                io.BytesIO(path.read_bytes()), encoding="latin-1", on_bad_lines="skip", dtype=str
+            )
+
+        raw = self._get(f"{BASE_URL}/{sc}/{div}.csv")
+        if raw is None and league in _MIRROR:  # direct blocked/failed -> GitHub mirror
+            raw = self._get(_MIRROR[league].format(sc=sc))
+        if raw is None:
+            raise requests.ConnectionError(f"{league} {season}: no source reachable")
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        return pd.read_csv(io.BytesIO(raw), encoding="latin-1", on_bad_lines="skip", dtype=str)
 
     def load_matches(
         self,
@@ -118,7 +157,7 @@ class FootballDataCoUk:
             div = DIV_CODE[lg]
             for season in seasons:
                 try:
-                    raw = self._fetch_csv(div, season, refresh=refresh)
+                    raw = self._fetch_csv(lg, div, season, refresh=refresh)
                 except (requests.HTTPError, requests.ConnectionError) as exc:  # noqa: PERF203
                     print(f"  skip {lg} {season}: {exc}")
                     continue
@@ -127,9 +166,7 @@ class FootballDataCoUk:
                     continue
                 df = pd.DataFrame(
                     {
-                        "date": pd.to_datetime(
-                            raw["date"], dayfirst=True, errors="coerce", format="mixed"
-                        ),
+                        "date": _parse_dates(raw["date"]),
                         "league": lg,
                         "season": season,
                         "home_team": raw["hometeam"].str.strip(),
@@ -143,7 +180,7 @@ class FootballDataCoUk:
                         ).str.strip(),
                     }
                 )
-                for src, dst in _ODDS_COLS.items():
+                for src, dst in {**_ODDS_COLS, **_STAT_COLS}.items():
                     df[dst] = (
                         pd.to_numeric(raw[src], errors="coerce") if src in raw.columns else pd.NA
                     )

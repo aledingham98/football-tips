@@ -56,8 +56,12 @@ def build_fixtures(
         print("  no fixture source available - writing empty fixtures parquet")
         df = pd.DataFrame(columns=SCHEMA)
     else:
+        from ingest.teams import canonical_name
+
         df = pd.concat(frames, ignore_index=True)
         df["kickoff"] = pd.to_datetime(df["kickoff"], utc=True, errors="coerce")
+        df["home_team"] = df["home_team"].map(canonical_name)
+        df["away_team"] = df["away_team"].map(canonical_name)
         df["tier"] = df["league"].map(lambda lg: lt[lg]["tier"])
         df["matchday"] = df.get("matchday")
         df["fixture_id"] = df.get("fixture_id", df["home_team"] + " v " + df["away_team"])
