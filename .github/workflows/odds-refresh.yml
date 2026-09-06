@@ -1,17 +1,14 @@
 name: odds-refresh
 
-# Phase 4. Fetches UK odds twice daily within the free-tier credit budget:
-#   The Odds API  - region=uk, markets=h2h,totals,btts  (3 credits / league / call)
-#   Betfair       - delayed app key, no-vig midpoints
-# The CreditBudgeter hard-stops before any call that would breach the quota floor.
-#
-# Manual-only until Phase 4 wires the providers; then the schedule below is enabled.
+# The Odds API, region=uk, markets=h2h,totals,btts (3 credits/league/call).
+# 2 leagues x 2 runs/day x 3 = 12 credits/day ~= 360/month of the free 500.
+# The CreditBudgeter hard-stops before any call that would breach the floor.
 
 on:
+  schedule:
+    - cron: "0 8 * * *"      # ~08:00 UTC  (morning)
+    - cron: "0 12 * * *"     # ~12:00 UTC  (~2h before Saturday 15:00 kickoffs)
   workflow_dispatch:
-  # schedule:
-  #   - cron: "0 8 * * *"     # ~08:00 UTC  (morning)
-  #   - cron: "0 13 * * *"    # ~13:00 UTC  (~2h before Saturday 15:00 kickoffs)
 
 concurrency:
   group: odds-refresh
@@ -23,27 +20,26 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --extra betfair
+      - run: uv sync
       - name: Fetch odds (budget-gated)
         env:
           THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
-          BETFAIR_USERNAME: ${{ secrets.BETFAIR_USERNAME }}
-          BETFAIR_PASSWORD: ${{ secrets.BETFAIR_PASSWORD }}
-          BETFAIR_APP_KEY: ${{ secrets.BETFAIR_APP_KEY }}
         run: uv run python -m ingest.run_odds
       - name: Commit odds snapshot
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/raw/odds data/processed || true
-          git diff --cached --quiet || {
+          git add data/raw/odds/quota.json data/processed/odds_latest.parquet || true
+          if git diff --cached --quiet; then
+            echo "no odds changes"
+          else
             git commit -m "odds refresh $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
-          }
+          fi

@@ -24,6 +24,8 @@ MATCHES_PATH = DATA / "processed" / "matches.parquet"
 CALIB_MAP_PATH = DATA / "model" / "calibration_map.json"
 CALIB_METRICS_PATH = DATA / "processed" / "calibration_metrics.parquet"
 FIXTURES_PATH = DATA / "processed" / "fixtures.parquet"
+ODDS_LATEST_PATH = DATA / "processed" / "odds_latest.parquet"
+ODDS_QUOTA_PATH = DATA / "raw" / "odds" / "quota.json"
 
 
 def _mtime(path: Path) -> float:
@@ -76,6 +78,22 @@ def fixtures(_mtime_key: float) -> pd.DataFrame | None:
     if FIXTURES_PATH.exists():
         return pd.read_parquet(FIXTURES_PATH)
     return None
+
+
+@st.cache_data(show_spinner=False)
+def odds_latest(_mtime_key: float) -> pd.DataFrame | None:
+    if ODDS_LATEST_PATH.exists():
+        return pd.read_parquet(ODDS_LATEST_PATH)
+    return None
+
+
+def odds_quota() -> dict:
+    import json
+
+    try:
+        return json.loads(ODDS_QUOTA_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 # --- convenience views the pages use -------------------------------------- #

@@ -113,3 +113,58 @@ def market_row(res, mi, cmap=None, league: str | None = None) -> list[dict]:
         p_cal = cmap.apply(key, p, league) if (cmap is not None and key) else p
         out.append({"label": label, "prob": p, "prob_cal": p_cal, "fair": 1.0 / max(p_cal, 1e-9)})
     return out
+
+
+# The Odds API (market, selection) -> our slate market label
+_ODDS_TO_SLATE = {
+    ("result", "home"): "Home win",
+    ("result", "draw"): "Draw",
+    ("result", "away"): "Away win",
+    ("total_goals", "over 1.5"): "Over 1.5",
+    ("total_goals", "over 2.5"): "Over 2.5",
+    ("total_goals", "under 2.5"): "Under 2.5",
+    ("total_goals", "over 3.5"): "Over 3.5",
+    ("btts", "yes"): "BTTS",
+    ("btts", "no"): "BTTS No",
+}
+
+
+def value_table(slate_df, odds_df):
+    """Left-join the slate with the best committed odds and compute EV.
+
+    Returns the slate with `best_odds`, `book`, `ev` columns (NaN where no odds
+    matched). Team names are matched on a normalised key.
+    """
+    import pandas as pd
+
+    from ingest.matches import normalize_team_name
+
+    s = slate_df.copy()
+    parts = s["fixture"].str.split(" v ", n=1, expand=True)
+    s["hk"] = parts[0].map(normalize_team_name)
+    s["ak"] = parts[1].map(normalize_team_name)
+
+    if odds_df is None or len(odds_df) == 0:
+        s["best_odds"] = pd.NA
+        s["book"] = pd.NA
+        s["ev"] = pd.NA
+        return s
+
+    o = odds_df.copy()
+    o["mkt_label"] = [
+        _ODDS_TO_SLATE.get((m, str(sel).lower()))
+        for m, sel in zip(o["market"], o["selection"], strict=True)
+    ]
+    o = o.dropna(subset=["mkt_label"])
+    o["hk"] = o["home_team"].map(normalize_team_name)
+    o["ak"] = o["away_team"].map(normalize_team_name)
+    o = o.rename(columns={"decimal_odds": "best_odds", "provider": "book"})
+
+    merged = s.merge(
+        o[["hk", "ak", "mkt_label", "best_odds", "book"]],
+        left_on=["hk", "ak", "market"],
+        right_on=["hk", "ak", "mkt_label"],
+        how="left",
+    ).drop(columns=["mkt_label"])
+    merged["ev"] = merged["model_prob"] * merged["best_odds"] - 1.0
+    return merged
