@@ -35,15 +35,20 @@ notebooks/**/output/
 Thumbs.db
 
 # --- Data: commit processed/model outputs, ignore heavy raw caches ---
-# The FBref (soccerdata) cache is the rate-limit shield. It lives in the
-# GitHub Actions cache + local dev machines, NOT the repo (keeps it lean).
+# Raw ingestion caches - rebuilt by the nightly Action, not committed (keeps the
+# repo lean). The FBref (soccerdata) cache is the rate-limit shield and lives in
+# the GitHub Actions cache + local dev machines.
 data/raw/fbref_cache/
 data/raw/football_data_couk/
+data/raw/football_data_org/
 data/raw/**/*.html
 data/raw/**/*.json.gz
+
+# Backtest artifacts - reproducible via scripts/run_backtest.py
+data/processed/calibration_*.parquet
 soccerdata/
 
 # Keep these tracked (the deployed app reads them at runtime):
-!data/processed/
+!data/processed/matches.parquet
 !data/model/
 !data/raw/odds/

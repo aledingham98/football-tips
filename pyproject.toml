@@ -44,7 +44,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ingest", "models", "simulation", "pricing", "storage"]
+packages = ["config", "ingest", "models", "simulation", "pricing", "storage"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"config/leagues.yaml" = "config/leagues.yaml"
+"config/model.yaml" = "config/model.yaml"
+"config/markets.yaml" = "config/markets.yaml"
 
 [tool.uv]
 # Keep the deployed app lean: betfair/storage/backtest are pulled in per-phase.
