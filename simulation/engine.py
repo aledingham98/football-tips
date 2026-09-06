@@ -214,8 +214,8 @@ def simulate(mi: MatchInputs, n_sims: int = 50_000, seed: int | None = None) -> 
     """Simulate ``n_sims`` complete matches for the fixture described by ``mi``."""
     rng = np.random.default_rng(seed)
 
-    # 1. final score - sample the DC-corrected joint PMF in one shot.
-    sm = score_matrix(mi.lambda_home, mi.lambda_away, mi.rho, SCORE_GRID_MAX)
+    # 1. final score - sample the (optionally tempo-inflated) DC joint PMF in one shot.
+    sm = score_matrix(mi.lambda_home, mi.lambda_away, mi.rho, SCORE_GRID_MAX, mi.tempo_var)
     idx = rng.choice(sm.size, size=n_sims, p=sm.ravel())
     home_goals, away_goals = np.divmod(idx, sm.shape[1])
     home_goals = home_goals.astype(np.int32)

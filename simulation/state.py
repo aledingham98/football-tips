@@ -120,6 +120,10 @@ class MatchInputs:
     # --- assists ---
     assist_fraction: float = 0.78
 
+    # --- score over-dispersion: shared per-match tempo multiplier variance
+    #     (0 = plain independent-Poisson Dixon-Coles) ---
+    tempo_var: float = 0.0
+
     # --- goal timing ---
     goal_bucket_weights: NDArray = field(
         default_factory=lambda: np.array([0.78, 0.95, 1.15, 1.0, 1.10, 1.30])

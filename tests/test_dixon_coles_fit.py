@@ -37,6 +37,17 @@ def _simulate_league(n_teams=18, n_matches=460, seed=0):
     return pd.DataFrame(rows), atk, dfn, teams
 
 
+def test_fit_converges_cleanly_and_quickly():
+    import time
+
+    df, *_ = _simulate_league(n_matches=900, seed=7)
+    t0 = time.perf_counter()
+    ratings = fit(df, DixonColesConfig(time_decay_half_life_days=1e6))
+    assert ratings.meta["converged"]
+    assert ratings.meta["opt_status"] == 0
+    assert time.perf_counter() - t0 < 3.0  # analytic gradient keeps refits cheap
+
+
 def test_fit_recovers_team_strength_ordering():
     df, true_atk, true_dfn, teams = _simulate_league(seed=1)
     ratings = fit(df, DixonColesConfig(time_decay_half_life_days=1e6, ratings_l2=0.02))

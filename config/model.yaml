@@ -11,6 +11,12 @@ simulation:
 dixon_coles:
   time_decay_half_life_days: 180     # exponential match-weight half-life (~6 months)
   rho_init: -0.10                    # low-score correlation parameter, initial value
+  # Shared per-match "tempo" multiplier theta ~ Gamma(mean 1, var tempo_var_init),
+  # scaling both teams' goal rates -> bivariate negative-binomial score. Fitted,
+  # with a gentle prior centred low: on goals-only PL/EFL data it lands near 0
+  # (no extra dispersion needed); it has room to grow once xG sharpens the rates.
+  tempo_var_init: 0.03
+  tempo_var_prior_sd: 0.06
   # L2 shrinkage of attack/defence params toward 0 (log scale).
   ratings_l2: 0.05
   # Pull each team's home params toward its away params (and vice versa).
