@@ -60,9 +60,10 @@ p_h = max(float((res.home_goals > res.away_goals).mean()), 1e-9)
 p_d = max(float((res.home_goals == res.away_goals).mean()), 1e-9)
 p_a = max(float((res.home_goals < res.away_goals).mean()), 1e-9)
 m1, m2, m3 = st.columns(3)
-m1.metric(f"{home[:12]} win", f"{p_h:.0%}", f"fair {1 / p_h:.2f}", delta_color="off")
-m2.metric("Draw", f"{p_d:.0%}", f"fair {1 / p_d:.2f}", delta_color="off")
-m3.metric(f"{away[:12]} win", f"{p_a:.0%}", f"fair {1 / p_a:.2f}", delta_color="off")
+m1.metric(f"{home[:12]} win", f"{p_h:.0%}")
+m2.metric("Draw", f"{p_d:.0%}")
+m3.metric(f"{away[:12]} win", f"{p_a:.0%}")
+st.caption(f"fair odds  {1 / p_h:.2f}  /  {1 / p_d:.2f}  /  {1 / p_a:.2f}")
 st.caption(
     f"Model goal expectation: {mi.lambda_home:.2f} – {mi.lambda_away:.2f}. "
     f"Squads are synthetic (no committed FBref player data yet) — player-prop legs "
@@ -149,14 +150,11 @@ book_odds = st.number_input(
 q = quote_builder(res, legs, book_odds=book_odds or None)
 
 pcol, fcol = st.columns(2)
-pcol.metric(
-    "Model probability",
-    f"{q.price.joint_prob:.1%}",
-    f"±{1.96 * q.price.mc_std_error:.1%} MC",
-    delta_color="off",
-)
-fcol.metric(
-    "Fair odds", f"{q.joint_fair_odds:.2f}", f"naive {q.naive_fair_odds:.2f}", delta_color="off"
+pcol.metric("Model probability", f"{q.price.joint_prob:.1%}")
+fcol.metric("Fair odds", f"{q.joint_fair_odds:.2f}")
+st.caption(
+    f"±{1.96 * q.price.mc_std_error:.1%} Monte-Carlo  ·  "
+    f"multiplying legs would say {q.naive_fair_odds:.2f}"
 )
 
 if q.correlation_factor <= 0.90:
