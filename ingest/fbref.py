@@ -165,6 +165,52 @@ def load_schedules(
     return df
 
 
+def load_upcoming_schedule(
+    leagues: list[str], *, throttle: float = 4.0, current_season: str | None = None
+) -> pd.DataFrame:
+    """Unplayed rows from the FBref schedule for the current season -> fixtures schema."""
+    from config.loader import leagues_config
+
+    season = current_season or leagues_config()["seasons"]["current"]
+    _prepare_soccerdata_dir()
+    import soccerdata as sd
+
+    rows: list[pd.DataFrame] = []
+    for lg in leagues:
+        if lg not in FBREF_LEAGUE:
+            continue
+        try:
+            fb = sd.FBref(leagues=FBREF_LEAGUE[lg], seasons=[season], data_dir=CACHE_DIR / "data")
+            sch = fb.read_schedule().reset_index()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  FBref upcoming[{lg}] failed: {exc}")
+            continue
+        finally:
+            time.sleep(throttle)
+        cols = {c.lower(): c for c in sch.columns}
+        score_col = cols.get("score") or cols.get("home_score")
+        played = sch[score_col].notna() if score_col else pd.Series(False, index=sch.index)
+        upc = sch[~played]
+        rows.append(
+            pd.DataFrame(
+                {
+                    "kickoff": pd.to_datetime(upc.get(cols.get("date")), errors="coerce"),
+                    "league": lg,
+                    "home_team": upc.get(cols.get("home_team")),
+                    "away_team": upc.get(cols.get("away_team")),
+                    "matchday": upc.get(cols.get("week")),
+                    "status": "SCHEDULED",
+                    "fixture_id": (
+                        upc.get(cols.get("home_team")).astype(str)
+                        + " v "
+                        + upc.get(cols.get("away_team")).astype(str)
+                    ),
+                }
+            )
+        )
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+
+
 def ingest_fbref(
     leagues: list[str],
     seasons: list[str],

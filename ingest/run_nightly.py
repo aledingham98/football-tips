@@ -48,7 +48,9 @@ def _step(name: str, fn) -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--holdout", default=_default_holdout())
-    ap.add_argument("--skip-fbref", action="store_true")
+    # FBref is opt-in and run as its own workflow step (it is slow and can hang on
+    # Cloudflare); the core pipeline below never waits on it.
+    ap.add_argument("--with-fbref", action="store_true")
     ap.add_argument("--fbref-throttle", type=float, default=4.0)
     args = ap.parse_args()
 
@@ -62,6 +64,11 @@ def main() -> int:
         from ingest.matches import build_match_history
 
         build_match_history(all_leagues, seasons)
+
+    def step_fixtures():
+        from ingest.fixtures import build_fixtures
+
+        build_fixtures(all_leagues)
 
     def step_ratings():
         matches = pd.read_parquet("data/processed/matches.parquet")
@@ -88,7 +95,8 @@ def main() -> int:
     def step_fbref():
         from ingest.fbref import ingest_fbref
 
-        manifest = ingest_fbref(all_leagues, seasons, throttle=args.fbref_throttle)
+        current = [lc["seasons"]["current"]]
+        manifest = ingest_fbref(all_leagues, current, throttle=args.fbref_throttle)
         print(f"  fbref manifest: {manifest}")
 
     ok["matches"] = _step("1. match history", step_matches)
@@ -97,8 +105,9 @@ def main() -> int:
         ok["calibration"] = _step("3. calibration", step_calibration)
         if ok.get("calibration"):
             ok["calibration_map"] = _step("4. calibration map", step_calibration_map)
-    if not args.skip_fbref:
-        ok["fbref"] = _step("5. FBref (best effort)", step_fbref)
+    ok["fixtures"] = _step("5. upcoming fixtures", step_fixtures)
+    if args.with_fbref:
+        ok["fbref"] = _step("6. FBref (best effort, current season)", step_fbref)
 
     print(f"\n=== summary: {ok} ===")
     # fail the job only if the core pipeline (matches -> ratings) broke

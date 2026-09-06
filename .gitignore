@@ -46,6 +46,8 @@ data/raw/**/*.json.gz
 
 # Backtest artifacts - reproducible via scripts/run_backtest.py
 data/processed/calibration_*.parquet
+# Bet log - runtime-written, never belongs in git (Supabase later)
+data/bet_log.db
 soccerdata/
 
 # Keep these tracked (the deployed app reads them at runtime):

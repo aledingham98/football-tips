@@ -315,6 +315,8 @@ trio-websocket==0.12.2
     # via
     #   selenium
     #   seleniumbase
+truststore==0.10.4
+    # via football-tips
 typing-extensions==4.16.0
     # via
     #   altair

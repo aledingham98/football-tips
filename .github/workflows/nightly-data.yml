@@ -5,10 +5,10 @@ on:
     - cron: "0 2 * * *"        # ~02:00 UTC nightly
   workflow_dispatch:
     inputs:
-      skip_fbref:
-        description: "Skip the FBref pull (faster; results + ratings only)"
+      with_fbref:
+        description: "Also attempt the FBref pull (slow, best-effort)"
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: nightly-data
@@ -20,7 +20,7 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -41,12 +41,20 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra ingest --extra backtest
 
-      - name: Run nightly data job
+      # --- core pipeline: fast, always runs, always the thing that commits ---
+      - name: Core data job (matches -> ratings -> calibration -> fixtures)
         env:
           FOOTBALL_DATA_ORG_API_KEY: ${{ secrets.FOOTBALL_DATA_ORG_API_KEY }}
-        run: |
-          uv run python -m ingest.run_nightly \
-            ${{ inputs.skip_fbref && '--skip-fbref' || '' }}
+        run: uv run python -m ingest.run_nightly
+
+      # --- FBref: best-effort, time-boxed, never fails the job ---
+      - name: FBref player/team stats (best effort)
+        if: ${{ github.event_name == 'schedule' || inputs.with_fbref }}
+        continue-on-error: true
+        timeout-minutes: 35
+        env:
+          FOOTBALL_DATA_ORG_API_KEY: ${{ secrets.FOOTBALL_DATA_ORG_API_KEY }}
+        run: timeout 1800 uv run python -m ingest.run_nightly --with-fbref || true
 
       - name: Commit refreshed data
         run: |

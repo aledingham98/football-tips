@@ -39,14 +39,27 @@ st.caption(
 
 st.divider()
 st.subheader("Pages")
-st.page_link("pages/1_Bet_Builder.py", label="🎯 Bet Builder pricer", icon=None)
-st.write(
-    "- **Bet Builder** — price a same-game multi by joint simulation, see each "
-    "leg's standalone probability next to the correlation-aware joint price, and "
-    "check a bookmaker's price for value."
+st.page_link(
+    "pages/1_Bet_Builder.py", label="🎯 Bet Builder — price a same-game multi by joint simulation"
+)
+st.page_link(
+    "pages/2_Value_Bets.py", label="💰 Value Bets — EV > 3%, ranked (manual odds until Phase 4)"
+)
+st.page_link(
+    "pages/3_High_Confidence.py", label="✅ High Confidence — most likely outcomes (likely ≠ value)"
+)
+st.page_link(
+    "pages/4_Stats_Browser.py", label="📊 Stats Browser — team ratings, form, home/away splits"
+)
+st.page_link(
+    "pages/5_Acca_Builder.py", label="🧮 Acca Builder — compound price, margin, Kelly, drawdown"
+)
+st.page_link(
+    "pages/6_Bet_Log.py", label="📒 Bet Log — record bets, closing-line value, calibration"
 )
 st.caption(
-    "Value Bets, High Confidence, Stats Browser, Acca Builder and Bet Log arrive in later phases."
+    "Player props use a synthetic squad until FBref player data is committed; "
+    "Value Bets auto-ranks once the Phase 4 odds feed lands."
 )
 
 st.divider()

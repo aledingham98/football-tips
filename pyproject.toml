@@ -20,8 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Nightly GitHub Action only - FBref via soccerdata (pulls Selenium etc.).
-ingest = ["soccerdata>=1.8.7"]
+# Nightly GitHub Action + local ingestion. soccerdata pulls Selenium etc.;
+# truststore lets requests use the OS trust store behind a TLS-intercepting proxy.
+ingest = ["soccerdata>=1.8.7", "truststore>=0.9"]
 # Phase 4 - Betfair delayed key.
 betfair = ["betfairlightweight>=2.20"]
 # Phase 5 - bet log persistence.
