@@ -53,24 +53,49 @@ Cloud has an ephemeral filesystem.
 ## Setup
 
 ```bash
-uv sync --extra dev          # create .venv (Python 3.12) and install
+uv sync --extra dev --extra ingest --extra backtest   # create .venv (Python 3.12)
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # then fill in keys
-uv run pytest                # run the engine test suite
+uv run pytest                                          # engine + fit + pricing tests
+uv run python -m ingest.matches                        # build data/processed/matches.parquet
+uv run python -m scripts.fit_ratings                   # -> data/model/ratings.parquet
+uv run python -m scripts.run_backtest                  # -> reports/calibration/reliability.png
+uv run streamlit run app/Home.py                       # the app, on http://localhost:8501
 ```
 
-Regenerate the pinned deploy manifest after changing dependencies:
+Regenerate the pinned deploy manifests after changing dependencies (keep the `-e .` line):
 
 ```bash
 uv export --no-hashes --no-dev --format requirements-txt -o requirements.txt
+uv export --no-hashes --no-dev --extra ingest --format requirements-txt -o requirements-ingest.txt
 ```
+
+## Deploy to Streamlit Community Cloud
+
+1. Push to GitHub (done: `aledingham98/football-tips`, public).
+2. At [share.streamlit.io](https://share.streamlit.io) → **New app** → this repo, branch `main`,
+   main file `app/Home.py`. It reads `.python-version` (3.12) and installs `requirements.txt`
+   (which includes `-e .` so the local packages resolve).
+3. **Settings → Secrets**: paste the filled-in contents of `.streamlit/secrets.toml.example`.
+   The app itself needs no secret in Phase 3 (it only reads committed parquet); the keys are
+   for later phases and parity with the Action.
+4. The nightly `nightly-data` GitHub Action refreshes the parquet and commits it back; Streamlit
+   Cloud auto-redeploys on each push. Add `FOOTBALL_DATA_ORG_API_KEY` as a repo secret for it.
 
 ## Build status
 
-- [ ] **Phase 1** — FBref ingestion, Dixon-Coles fit, simulation engine, tests
-- [ ] **Phase 2** — backtest + calibration on a held-out season
-- [ ] **Phase 3** — Bet Builder pricer UI, deployed to Streamlit Cloud
+- [x] **Phase 1** — Dixon-Coles fit, vectorised simulation engine, tests (50k sims ≈ 0.3 s)
+- [x] **Phase 2** — walk-forward calibration on a held-out season; 1X2 calibrated, goals-markets
+      tuning tracked (tempo term + calibration map in place, xG via the Action pending)
+- [~] **Phase 3** — Bet Builder pricer UI built; Streamlit Cloud deploy is a one-time account step
 - [ ] **Phase 4** — Value / High Confidence lists, The Odds API + Betfair
 - [ ] **Phase 5** — Stats browser, acca builder, bet log
+
+### Data note
+
+football-data.org's free tier gives Premier League + Championship, three seasons. The nightly
+Action also tries football-data.co.uk (four tiers, five seasons, closing odds + referee) and
+FBref via `soccerdata` (player-level, all four tiers); both can be flaky from cloud IPs, so the
+pipeline degrades gracefully and the app always has *something* to price.
 
 ## Not a tipster
 
