@@ -61,10 +61,30 @@ def _calib_key(leg: Leg) -> str | None:
     return None
 
 
+# slate market label -> key in models.dixon_coles.analytic_markets(score_matrix)
+_SLATE_ANALYTIC = {
+    "Home win": "result_home",
+    "Draw": "result_draw",
+    "Away win": "result_away",
+    "Over 1.5": "over_1.5",
+    "Over 2.5": "over_2.5",
+    "Under 2.5": "under_2.5",
+    "Over 3.5": "over_3.5",
+    "BTTS": "btts_yes",
+    "BTTS No": "btts_no",
+    "Home or draw": "home_dc",
+    "Draw or away": "away_dc",
+    "Home -1 (win by 2+)": "home_by_2plus",
+}
+
+
 @st.cache_data(show_spinner="Pricing the upcoming slate…")
-def slate(_ratings_mtime: float, _fixtures_mtime: float, n_sims: int = 20_000):
-    """Model probabilities for every standard market across all *future* fixtures."""
+def slate(_ratings_mtime: float, _fixtures_mtime: float):
+    """Exact model probabilities (from the Dixon-Coles score matrix, no Monte-Carlo
+    noise) for every standard market across all *future* fixtures."""
     import pandas as pd
+
+    from models.dixon_coles import analytic_markets
 
     fx = data_access.fixtures(_fixtures_mtime)
     R = data_access.ratings()
@@ -72,27 +92,23 @@ def slate(_ratings_mtime: float, _fixtures_mtime: float, n_sims: int = 20_000):
         return pd.DataFrame()
     now = pd.Timestamp.now(tz="UTC")
     fx = fx[pd.to_datetime(fx["kickoff"], utc=True) > now]  # drop kicked-off / in-play
-    mcfg = data_access.get_model_config()
     rows = []
     for f in fx.itertuples(index=False):
-        home, away, league, tier = f.home_team, f.away_team, f.league, int(f.tier)
+        home, away, tier = f.home_team, f.away_team, int(f.tier)
         if home not in R.table.index or away not in R.table.index:
             continue
-        mi = build_match_inputs(R, home, away, league=league, tier=tier, model_cfg=mcfg)
-        res = simulate(mi, n_sims=n_sims, seed=PRICE_SEED)
-        # raw model probabilities only - a per-market calibration map would make
-        # complementary lines (Over/Under) incoherent in a scanner view. The map
-        # is applied per-selection where it's validated (Phase 4 value ranking).
-        for r in market_row(res, mi, cmap=None, league=league):
+        am = analytic_markets(R.score_matrix(home, away, home_tier=tier, away_tier=tier))
+        for label, key in _SLATE_ANALYTIC.items():
+            p = am[key]
             rows.append(
                 {
                     "kickoff": f.kickoff,
                     "fixture": f"{home} v {away}",
-                    "league": league,
-                    "market": r["label"],
-                    "model_prob": r["prob"],
-                    "cal_prob": r["prob_cal"],
-                    "fair_odds": r["fair"],
+                    "league": f.league,
+                    "market": label,
+                    "model_prob": p,
+                    "cal_prob": p,
+                    "fair_odds": 1.0 / max(p, 1e-9),
                 }
             )
     return pd.DataFrame(rows)

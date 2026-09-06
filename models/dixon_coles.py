@@ -109,6 +109,11 @@ def analytic_markets(sm: NDArray) -> dict[str, float]:
     for k in (0, 1, 2, 3):
         out[f"home_goals_{k}plus"] = float(sm[xx >= k].sum())
         out[f"away_goals_{k}plus"] = float(sm[yy >= k].sum())
+    margin = xx - yy
+    out["home_dc"] = out["result_home"] + out["result_draw"]
+    out["away_dc"] = out["result_away"] + out["result_draw"]
+    out["home_by_2plus"] = float(sm[margin >= 2].sum())
+    out["away_by_2plus"] = float(sm[margin <= -2].sum())
     return out
 
 
