@@ -1,0 +1,79 @@
+# Model hyperparameters. Tuned properly in Phase 2 against a held-out season;
+# these are sensible starting values.
+
+simulation:
+  n_sims: 50000
+  rng_seed: null            # null -> fresh entropy each run; set an int for reproducible pricing
+  max_goals_per_team: 15    # truncation for the Dixon-Coles score grid
+  max_shots_per_team: 40    # array width cap for per-shot simulation
+  max_goals_alloc: 9        # array width cap for goal/scorer allocation
+
+dixon_coles:
+  time_decay_half_life_days: 180     # exponential match-weight half-life (~6 months)
+  rho_init: -0.10                    # low-score correlation parameter, initial value
+  # L2 shrinkage of attack/defence params toward 0 (log scale).
+  ratings_l2: 0.05
+  # Pull each team's home params toward its away params (and vice versa).
+  home_away_coupling: 0.35
+  # Global multiplicative home advantage, initial value (log scale).
+  home_advantage_init: 0.25
+  fit_on_xg_when_available: true
+  # Blend weight for xG vs actual goals when both exist: 1.0 = pure xG.
+  xg_blend: 0.70
+
+league_strength:
+  # Gaussian prior on per-tier strength offsets (log goal rate). Tier 1 fixed at 0.
+  prior_sd: 0.40
+  # Identified from teams that changed division across the history window.
+
+promotion_shrinkage:
+  # New-to-division team attack/defence shrunk toward league average.
+  # weight = base * exp(-games_played / decay_games)
+  base: 0.60
+  decay_games: 12
+
+minutes:
+  # Expected minutes projection from recent appearances.
+  lookback_matches: 10
+  recent_weight_half_life_matches: 5
+  # Substitution timing (minutes) modelled as a distribution, not a point.
+  sub_off_time_mean: 68
+  sub_off_time_sd: 18
+  sub_on_time_mean: 66
+  sub_on_time_sd: 15
+  # Probability a nominal starter is actually benched/rotated (before known-injury info).
+  rotation_prob_default: 0.12
+
+shots:
+  # Team shot volume ~ NegBinom(mean, dispersion). Higher dispersion_k -> closer to Poisson.
+  dispersion_k: 12.0
+  # Game-state: trailing teams shoot more, leading teams fewer. Applied from the
+  # pre-simulated expected supremacy, not the drawn score (avoids circularity).
+  game_state_beta: 0.08
+  # Finishing rate is shrunk HARD toward the positional average.
+  # posterior = (shots*rate + pseudo*pos_avg) / (shots + pseudo)
+  finishing_pseudo_shots: 250
+  # Shot-on-target rate shrinkage (lighter than finishing).
+  sot_pseudo_shots: 120
+  # Fraction of goals that have a recorded assist.
+  assist_fraction: 0.78
+
+cards:
+  # Referee yellow rate is its own parameter; this is the league fallback when the
+  # referee is unknown. Per team per match.
+  ref_yellow_rate_default: 1.9
+  ref_yellow_pseudo_matches: 20      # shrink referee rate toward league mean
+  red_rate_default: 0.11             # straight/second-yellow reds per team per match
+  second_yellow_prob: 0.06           # P(a booked player picks up a second)
+  derby_multiplier: 1.15
+
+corners:
+  dispersion_k: 14.0
+  game_state_beta: 0.05
+
+goal_timing:
+  # Empirical goal-minute distribution: piecewise weights over 6 15-min buckets
+  # (0-15,15-30,30-45,45-60,60-75,75-90). Late-half rises + stoppage handled in code.
+  bucket_weights: [0.78, 0.95, 1.15, 1.00, 1.10, 1.30]
+  first_half_stoppage_mean: 2
+  second_half_stoppage_mean: 5

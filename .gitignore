@@ -1,0 +1,49 @@
+# --- Secrets (NEVER commit) ---
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+*.pem
+*.key
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version.local
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+notebooks/**/output/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Data: commit processed/model outputs, ignore heavy raw caches ---
+# The FBref (soccerdata) cache is the rate-limit shield. It lives in the
+# GitHub Actions cache + local dev machines, NOT the repo (keeps it lean).
+data/raw/fbref_cache/
+data/raw/football_data_couk/
+data/raw/**/*.html
+data/raw/**/*.json.gz
+soccerdata/
+
+# Keep these tracked (the deployed app reads them at runtime):
+!data/processed/
+!data/model/
+!data/raw/odds/

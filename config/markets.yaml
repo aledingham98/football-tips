@@ -1,0 +1,138 @@
+# Market catalogue. Each entry is a market TYPE; the UI supplies the concrete
+# parameters (which team, which player, which line). The simulation.markets module
+# has an evaluator registered under each `key`.
+#
+# entity:  match | team | player   (what the leg is about)
+# kind:    boolean | line | threshold
+#          - boolean:   no parameter (e.g. BTTS yes)
+#          - line:      over/under a .5 line (param: default line, options: allowed lines)
+#          - threshold: "N or more" where the UI picks N (options: allowed N)
+# side:    for line markets, whether the default leg is over/under
+
+markets:
+  # --- Match result ---
+  - key: result
+    label: "Match result"
+    entity: match
+    kind: enum
+    options: ["home", "draw", "away"]
+  - key: double_chance
+    label: "Double chance"
+    entity: match
+    kind: enum
+    options: ["home_draw", "home_away", "draw_away"]
+  - key: btts
+    label: "Both teams to score"
+    entity: match
+    kind: boolean
+  - key: result_and_btts
+    label: "Result + BTTS"
+    entity: match
+    kind: enum
+    options: ["home_yes", "home_no", "draw_yes", "away_yes"]
+
+  # --- Goals totals ---
+  - key: total_goals
+    label: "Total goals"
+    entity: match
+    kind: line
+    default: 2.5
+    options: [0.5, 1.5, 2.5, 3.5, 4.5]
+    side: over
+  - key: team_goals
+    label: "Team total goals"
+    entity: team
+    kind: line
+    default: 1.5
+    options: [0.5, 1.5, 2.5, 3.5]
+    side: over
+  - key: total_goals_first_half
+    label: "First-half total goals"
+    entity: match
+    kind: line
+    default: 0.5
+    options: [0.5, 1.5, 2.5]
+    side: over
+  - key: half_time_result
+    label: "Half-time result"
+    entity: match
+    kind: enum
+    options: ["home", "draw", "away"]
+  - key: goal_both_halves
+    label: "Goal in both halves"
+    entity: match
+    kind: boolean
+
+  # --- Player props (shot mechanism) ---
+  - key: player_shots
+    label: "Player shots"
+    entity: player
+    kind: threshold
+    options: [1, 2, 3, 4]
+  - key: player_sot
+    label: "Player shots on target"
+    entity: player
+    kind: threshold
+    options: [1, 2, 3]
+  - key: player_goals
+    label: "Player to score"
+    entity: player
+    kind: threshold
+    options: [1, 2, 3]
+  - key: player_assists
+    label: "Player to assist"
+    entity: player
+    kind: threshold
+    options: [1, 2]
+  - key: player_goal_or_assist
+    label: "Player goal or assist"
+    entity: player
+    kind: boolean
+
+  # --- Cards ---
+  - key: player_carded
+    label: "Player to be carded"
+    entity: player
+    kind: boolean
+  - key: total_cards
+    label: "Total cards (bookings)"
+    entity: match
+    kind: line
+    default: 3.5
+    options: [2.5, 3.5, 4.5, 5.5]
+    side: over
+  - key: team_cards
+    label: "Team cards"
+    entity: team
+    kind: line
+    default: 1.5
+    options: [0.5, 1.5, 2.5]
+    side: over
+  - key: red_card
+    label: "Red card in match"
+    entity: match
+    kind: boolean
+
+  # --- Corners ---
+  - key: total_corners
+    label: "Total corners"
+    entity: match
+    kind: line
+    default: 9.5
+    options: [7.5, 8.5, 9.5, 10.5, 11.5, 12.5]
+    side: over
+  - key: team_corners
+    label: "Team corners"
+    entity: team
+    kind: line
+    default: 4.5
+    options: [3.5, 4.5, 5.5, 6.5]
+    side: over
+
+# Pairs that are commonly negatively correlated - the builder warns when a
+# builder combines legs across a flagged pair and joint/product diverge sharply.
+negative_correlation_hints:
+  - ["total_goals:under", "player_goals"]
+  - ["total_goals:under", "team_goals:over"]
+  - ["result", "opp_player_goals"]
+  - ["total_corners:under", "total_goals:over"]

@@ -1,0 +1,16 @@
+# Mobile-first: single column, no wide layout, large tap targets.
+[theme]
+base = "dark"
+primaryColor = "#00c176"
+font = "sans serif"
+
+[client]
+showSidebarNavigation = true
+toolbarMode = "minimal"
+
+[server]
+headless = true
+runOnSave = true
+
+[browser]
+gatherUsageStats = false

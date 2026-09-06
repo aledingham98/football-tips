@@ -1,0 +1,55 @@
+# Internal league code -> provider-specific identifiers.
+# Internal codes: EPL, ECH (Championship), EL1 (League One), EL2 (League Two).
+#
+# football_data_org: competition code, free tier covers PL + ELC only.
+# the_odds_api:       sport key, free tier covers EPL + Championship only.
+# fbref:              soccerdata league id (all four tiers, player level).
+# football_data_couk: division code in the historical CSVs (all four tiers).
+# tier:               1..4, used by the hierarchical league-strength prior.
+
+leagues:
+  EPL:
+    name: "Premier League"
+    tier: 1
+    fbref: "ENG-Premier League"
+    football_data_org: "PL"
+    the_odds_api: "soccer_epl"
+    football_data_couk: "E0"
+    has_xg: true
+
+  ECH:
+    name: "Championship"
+    tier: 2
+    fbref: "ENG-Championship"
+    football_data_org: "ELC"
+    the_odds_api: "soccer_efl_champ"
+    football_data_couk: "E1"
+    has_xg: true          # FBref xG coverage present but thinner than EPL
+
+  EL1:
+    name: "League One"
+    tier: 3
+    fbref: "ENG-League One"
+    football_data_org: null      # not on free tier -> fixtures come from FBref
+    the_odds_api: null           # model-only, no market odds
+    football_data_couk: "E2"
+    has_xg: false        # FBref xG coverage patchy/absent -> goals-based fit
+
+  EL2:
+    name: "League Two"
+    tier: 4
+    fbref: "ENG-League Two"
+    football_data_org: null
+    the_odds_api: null
+    football_data_couk: "E3"
+    has_xg: false
+
+# Seasons to ingest for fitting + backtest (FBref / football-data.co.uk season labels).
+seasons:
+  history: ["2021-2022", "2022-2023", "2023-2024", "2024-2025", "2025-2026"]
+  current: "2025-2026"
+
+# soccerdata cache location (gitignored; lives in the Actions cache + dev machines).
+fbref_cache_dir: "data/raw/fbref_cache"
+# Conservative throttle between FBref requests (seconds). FBref sits behind Cloudflare.
+fbref_request_delay_seconds: 5
