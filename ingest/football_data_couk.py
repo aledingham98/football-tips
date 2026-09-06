@@ -12,13 +12,20 @@ output is written to ``data/processed/matches.parquet`` and committed.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
 import requests
 
+from ingest._net import make_session
+
 BASE_URL = "https://www.football-data.co.uk/mmz4281"
+# football-data.co.uk intermittently 503s (and rate-limits cloud IPs); retry a few
+# times with backoff before giving up on a division-season.
+_RETRIES = 4
+_BACKOFF = 3.0
 
 # internal league code -> football-data.co.uk division code
 DIV_CODE = {"EPL": "E0", "ECH": "E1", "EL1": "E2", "EL2": "E3"}
@@ -49,26 +56,42 @@ class FootballDataCoUk:
     cache_dir: Path = Path("data/raw/football_data_couk")
     session: requests.Session | None = None
     timeout: float = 30.0
+    _sess: requests.Session | None = field(default=None, repr=False)
 
     def _session(self) -> requests.Session:
-        if self.session is None:
-            self.session = requests.Session()
-            self.session.headers.update({"User-Agent": "football-tips/0.1 (personal use)"})
-        return self.session
+        if self.session is not None:
+            return self.session
+        if self._sess is None:
+            self._sess = make_session()
+        return self._sess
 
     def _fetch_csv(self, div: str, season: str, *, refresh: bool = False) -> pd.DataFrame:
         sc = season_code(season)
         path = self.cache_dir / sc / f"{div}.csv"
         if path.exists() and not refresh:
-            raw = path.read_bytes()
-        else:
-            url = f"{BASE_URL}/{sc}/{div}.csv"
-            resp = self._session().get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            raw = resp.content
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(raw)
-        return pd.read_csv(io.BytesIO(raw), encoding="latin-1", on_bad_lines="skip", dtype=str)
+            return pd.read_csv(
+                io.BytesIO(path.read_bytes()), encoding="latin-1", on_bad_lines="skip", dtype=str
+            )
+
+        url = f"{BASE_URL}/{sc}/{div}.csv"
+        last_exc: Exception | None = None
+        for attempt in range(_RETRIES):
+            try:
+                resp = self._session().get(url, timeout=self.timeout)
+                if resp.status_code in (429, 500, 502, 503, 504):
+                    resp.raise_for_status()
+                resp.raise_for_status()
+                raw = resp.content
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw)
+                return pd.read_csv(
+                    io.BytesIO(raw), encoding="latin-1", on_bad_lines="skip", dtype=str
+                )
+            except (requests.HTTPError, requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+                if attempt < _RETRIES - 1:
+                    time.sleep(_BACKOFF * (2**attempt))
+        raise last_exc  # exhausted retries
 
     def load_matches(
         self,

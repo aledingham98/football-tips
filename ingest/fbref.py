@@ -107,13 +107,70 @@ def pull_league(
     return out
 
 
+def load_schedules(
+    leagues: list[str], seasons: list[str], *, throttle: float = 4.0
+) -> pd.DataFrame:
+    """Tidy match results from FBref schedules - the fallback source for League
+    One / Two (and xG + referee for the top two tiers). Schema matches
+    :func:`ingest.matches.build_match_history`.
+    """
+    _prepare_soccerdata_dir()
+    import soccerdata as sd
+
+    frames: list[pd.DataFrame] = []
+    for lg in leagues:
+        if lg not in FBREF_LEAGUE:
+            continue
+        try:
+            fb = sd.FBref(leagues=FBREF_LEAGUE[lg], seasons=seasons, data_dir=CACHE_DIR / "data")
+            sch = fb.read_schedule().reset_index()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  FBref schedule[{lg}] failed: {exc}")
+            continue
+        finally:
+            time.sleep(throttle)
+
+        cols = {c.lower(): c for c in sch.columns}
+        hs = sch.get(cols.get("home_score"))
+        as_ = sch.get(cols.get("away_score"))
+        if hs is None and "score" in cols:  # "2–1" style
+            parts = sch[cols["score"]].astype(str).str.split(r"[-–]", regex=True, expand=True)
+            hs, as_ = (
+                pd.to_numeric(parts[0], errors="coerce"),
+                pd.to_numeric(parts[1], errors="coerce"),
+            )
+        out = pd.DataFrame(
+            {
+                "date": pd.to_datetime(sch.get(cols.get("date")), errors="coerce"),
+                "league": lg,
+                "season": sch.get(cols.get("season")),
+                "home_team": sch.get(cols.get("home_team")),
+                "away_team": sch.get(cols.get("away_team")),
+                "fthg": pd.to_numeric(hs, errors="coerce"),
+                "ftag": pd.to_numeric(as_, errors="coerce"),
+                "home_xg": pd.to_numeric(sch.get(cols.get("home_xg")), errors="coerce"),
+                "away_xg": pd.to_numeric(sch.get(cols.get("away_xg")), errors="coerce"),
+                "referee": sch.get(cols.get("referee")),
+                "source": "fbref_schedule",
+            }
+        )
+        frames.append(out.dropna(subset=["date", "home_team", "away_team", "fthg", "ftag"]))
+        print(f"  FBref schedule[{lg}]: {len(frames[-1])} completed matches")
+
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    df["fthg"] = df["fthg"].astype(int)
+    df["ftag"] = df["ftag"].astype(int)
+    return df
+
+
 def ingest_fbref(
     leagues: list[str],
     seasons: list[str],
     *,
     out_dir: str | Path = "data/processed/fbref",
     throttle: float = 4.0,
-    current_season_only_match_stats: str | None = None,
 ) -> dict[str, list[str]]:
     """Pull every league, write one parquet per (league, dataset). Returns a
     manifest of what was written. Never raises for a single-league failure.
@@ -124,12 +181,7 @@ def ingest_fbref(
     for lg in leagues:
         if lg not in FBREF_LEAGUE:
             continue
-        do_match = True
-        use_seasons = seasons
-        if current_season_only_match_stats:
-            # heavy match-log pull only for the current season to bound run time
-            use_seasons = seasons
-        datasets = pull_league(lg, use_seasons, throttle=throttle, do_match_stats=do_match)
+        datasets = pull_league(lg, seasons, throttle=throttle, do_match_stats=True)
         written: list[str] = []
         for name, df in datasets.items():
             path = out_dir / f"{lg}__{name}.parquet"

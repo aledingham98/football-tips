@@ -74,13 +74,28 @@ def build_match_history(
         except Exception as exc:  # noqa: BLE001
             print(f"  football-data.org unavailable: {exc}")
 
+    covered = set(pd.concat(frames)["league"].unique()) if frames else set()
+    missing = [lg for lg in leagues if lg not in covered]
+    if missing:
+        # FBref schedules: the brief's fallback for League One / Two, and it also
+        # carries xG + referee for the top two tiers.
+        try:
+            from ingest.fbref import load_schedules
+
+            fb = load_schedules(missing, seasons)
+            if len(fb):
+                frames.append(fb)
+                print(f"  FBref schedules: {len(fb)} matches for {sorted(fb['league'].unique())}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  FBref schedule fallback unavailable: {exc}")
+
     if not frames:
         raise RuntimeError("no match sources available")
 
     combined = pd.concat(frames, ignore_index=True)
     combined["date"] = pd.to_datetime(combined["date"])
-    # prefer the richer source: keep first occurrence after ordering couk before org
-    src_rank = {"football_data_couk": 0, "football_data_org": 1}
+    # prefer the richer source: keep first occurrence after ordering by source rank
+    src_rank = {"football_data_couk": 0, "football_data_org": 1, "fbref_schedule": 2}
     combined["_rank"] = combined["source"].map(src_rank).fillna(9)
     combined = combined.sort_values(["_rank", "date"])
     combined = combined[~_dedupe_key(combined).duplicated()].drop(columns="_rank")
