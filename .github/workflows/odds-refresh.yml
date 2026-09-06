@@ -1,8 +1,8 @@
 name: odds-refresh
 
-# The Odds API, region=uk, markets=h2h,totals,btts (3 credits/league/call).
-# 2 leagues x 2 runs/day x 3 = 12 credits/day ~= 360/month of the free 500.
-# The CreditBudgeter hard-stops before any call that would breach the floor.
+# The Odds API free tier, region=uk, markets=h2h,totals (2 credits/league/call;
+# btts/props are paid). 2 leagues x 2 runs/day x 2 = 8 credits/day ~= 240/month
+# of the free 500. The CreditBudgeter hard-stops before breaching the floor.
 
 on:
   schedule:

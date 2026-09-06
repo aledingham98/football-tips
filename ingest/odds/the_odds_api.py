@@ -20,7 +20,10 @@ from ingest.odds.budget import CreditBudgeter, call_cost
 
 API_ROOT = "https://api.the-odds-api.com/v4"
 REGION = "uk"
-DEFAULT_MARKETS = ("h2h", "totals", "btts")
+# Free Starter tier only serves the "featured" markets - h2h + totals (btts and
+# player props are paid "additional markets", they 422 the whole request).
+# 2 markets x 1 region = 2 credits per league per call.
+DEFAULT_MARKETS = ("h2h", "totals")
 # The Odds API sport-key -> internal league code (only the covered two).
 SPORT_KEYS = {"soccer_epl": "EPL", "soccer_efl_champ": "ECH"}
 _MARKET_MAP = {"h2h": "result", "totals": "total_goals", "btts": "btts"}
@@ -75,7 +78,12 @@ class TheOddsApiProvider(OddsProvider):
                 timeout=self.timeout,
             )
             self._absorb_quota(resp)
-            resp.raise_for_status()
+            if resp.status_code == 401:
+                raise RuntimeError("The Odds API rejected the key (401) - check THE_ODDS_API_KEY")
+            if resp.status_code >= 400:
+                body = resp.text[:200].replace("\n", " ")
+                print(f"::warning::The Odds API {resp.status_code} for {sport_key}: {body}")
+                continue
             quotes.extend(self._parse(resp.json(), league_code))
         return quotes
 
